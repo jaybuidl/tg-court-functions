@@ -3,7 +3,7 @@
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- * [__View Contract on Arbitrum Goerli Arbiscan__](https://goerli.arbiscan.io//address/0x791812B0B9f2ba260B2DA432BB02Ee23BC1bB509)
+ * [__View Contract on Arbitrum Goerli Arbiscan__](https://goerli.arbiscan.io//address/0x7d6b24d4DC36a6BC3F0E3B40B9383782Bcd0aDd7)
  */
 export const klerosCoreABI = [
     {
@@ -747,13 +747,13 @@ export const klerosCoreABI = [
   ] as const
   
   /**
-   * [__View Contract on Arbitrum Goerli Arbiscan__](https://goerli.arbiscan.io//address/0x791812B0B9f2ba260B2DA432BB02Ee23BC1bB509)
+   * [__View Contract on Arbitrum Goerli Arbiscan__](https://goerli.arbiscan.io//address/0x7d6b24d4DC36a6BC3F0E3B40B9383782Bcd0aDd7)
    */
   export const klerosCoreAddress = {
-    421613: '0x791812B0B9f2ba260B2DA432BB02Ee23BC1bB509',
+    421613: '0x7d6b24d4DC36a6BC3F0E3B40B9383782Bcd0aDd7',
   } as const
   
   /**
-   * [__View Contract on Arbitrum Goerli Arbiscan__](https://goerli.arbiscan.io//address/0x791812B0B9f2ba260B2DA432BB02Ee23BC1bB509)
+   * [__View Contract on Arbitrum Goerli Arbiscan__](https://goerli.arbiscan.io//address/0x7d6b24d4DC36a6BC3F0E3B40B9383782Bcd0aDd7)
    */
   export const klerosCoreConfig = { address: klerosCoreAddress, abi: klerosCoreABI } as const
