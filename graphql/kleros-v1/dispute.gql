@@ -1,0 +1,26 @@
+query NewDisputes(
+    $blockHeight: Int!, 
+    $disputeID: BigInt!
+){
+    disputes(
+        first: 1000, 
+        where: {
+            disputeIDNumber_gte: $disputeID
+        }, 
+        block: {number: $blockHeight}
+        orderBy: disputeIDNumber, 
+        orderDirection: asc) {
+            disputeIDNumber
+            arbitrated
+            court{
+                id
+                policy
+                name
+                description
+            }
+            metaEvidenceId
+            arbitrableHistory {
+                metaEvidence
+            }
+    }
+}

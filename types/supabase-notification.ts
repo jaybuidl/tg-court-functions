@@ -63,21 +63,24 @@ export interface Database {
         }
         Relationships: []
       }
-      "hermes-tg-counters": {
+      "hermes-counters": {
         Row: {
+          blockHeight: number
           bot_name: string
-          chainid: number
-          counter: number | null
+          indexLast: string
+          network: number
         }
         Insert: {
+          blockHeight?: number
           bot_name: string
-          chainid: number
-          counter?: number | null
+          indexLast?: string
+          network: number
         }
         Update: {
+          blockHeight?: number
           bot_name?: string
-          chainid?: number
-          counter?: number | null
+          indexLast?: string
+          network?: number
         }
         Relationships: []
       }
@@ -194,7 +197,28 @@ export interface Database {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_subscribers: {
+        Args: {
+          vals: string[]
+        }
+        Returns: {
+          juror_address: string
+          tg_user_id: number
+        }[]
+      }
+      hello_world: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
+      tg_users_subscribed_to: {
+        Args: {
+          vals: string[]
+        }
+        Returns: {
+          juror_address: string
+          tg_user_id: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

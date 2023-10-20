@@ -1,27 +1,38 @@
 import { appeal } from "./v1/appeal";
+import { appealV2 } from "./v2/appeal";
 import { dispute } from "./v1/dispute";
+import { dispute as disputeV2} from "./v2/dispute";
 import { draw } from "./v1/draw";
-import { draw as drawV2 } from "./v2/draw";
+import { drawV2 } from "./v2/draw";
+import { period } from "./v1/period";
+import { periodV2 } from "./v2/period";
+import { periodReminder } from "./v1/periodReminder";
+import { periodReminderV2 } from "./v2/periodReminder";
+import { appealReminder } from "./v1/appealReminder";
+import { appealReminderV2 } from "./v2/appealReminder";
 import { notificationSystem } from "../../config/supabase";
+import { Supported } from "../../types";
 import { StatusCodes } from "http-status-codes";
-import { arbitrumGoerli } from "viem/chains";
-import { supportedChainIds } from "../../config/subgraph";
-import { ArrayElement } from "../../types";
+import { supportedChainIdsV1, supportedChainIdsV2, rpcUrl } from "../../config/subgraph";
+import { JsonRpcProvider, Block } from "ethers";
+import { Logtail } from "@logtail/node";
+import { connect } from "amqplib";
+import { Wallet } from 'ethers';
+const { LOGTAIL_SOURCE_TOKEN, RABBITMQ_URL, SIGNER_KEY, TEST_TG_USER_ID } = process.env
+const logtail = new Logtail(LOGTAIL_SOURCE_TOKEN);
+// Getting private key from environment variable
 
-const bots = {
-    V1_COURT_DRAW: "tg-court-draw",
-    V2_COURT_DRAW: "tg-court-draw-v2",
-    V1_COURT_DISPUTE: "tg-court-dispute",
-    V1_COURT_APPEAL: "tg-court-appeal",
-};
+const signer = new Wallet(SIGNER_KEY);
+const testTgUserId = TEST_TG_USER_ID;
 
 export const notify = async () => {
+    const connection = await connect(RABBITMQ_URL);
+    const channel = await connection.createChannel();
     try {
         const { data, error } = await notificationSystem
-            .from(`hermes-tg-counters`)
-            .select("*")
-            .like("bot_name", "%-v2") // WARNING: v2 only
-            .order("bot_name", { ascending: true });
+            .from(`hermes-counters`)
+            .select("*");
+
 
         if (error || !data || data.length == 0) {
             console.error(error);
@@ -29,62 +40,95 @@ export const notify = async () => {
                 statusCode: StatusCodes.INTERNAL_SERVER_ERROR,
             };
         }
-
-        for (const row of data) {
-            console.log(row);
-            if (!row.counter) continue; // TODO: log a warning for skipping this row
-            if (!(row.chainid in supportedChainIds)) continue; // TODO: log a warning for skipping this row
-            const chainId =
-                supportedChainIds[
-                    row.chainid as ArrayElement<typeof supportedChainIds>
-                ];
-            switch (row.bot_name) {
-                case bots.V1_COURT_APPEAL: {
-                    const timestampUpdate = await appeal(row.counter, chainId);
-                    await notificationSystem
-                        .from(`hermes-tg-counters`)
-                        .update({ counter: timestampUpdate })
-                        .eq("bot_name", bots.V1_COURT_APPEAL)
-                        .eq("chainid", chainId);
-                    break;
-                }
-                case bots.V1_COURT_DISPUTE: {
-                    const disputeIDUpdate = await dispute(row.counter, chainId);
-                    await notificationSystem
-                        .from(`hermes-tg-counters`)
-                        .update({ counter: disputeIDUpdate })
-                        .eq("bot_name", bots.V1_COURT_DISPUTE)
-                        .eq("chainid", chainId);
-                    break;
-                }
-                case bots.V2_COURT_DRAW: {
-                    const blockNumberUpdate = await drawV2(
-                        BigInt(row.counter + 1)
-                    );
-                    await notificationSystem
-                        .from(`hermes-tg-counters`)
-                        .update({ counter: Number(blockNumberUpdate) }) // Dangerous if higher than Number.MAX_SAFE_INTEGER
-                        .eq("bot_name", bots.V2_COURT_DRAW)
-                        .eq("chainid", 0 /* arbitrumGoerli.id */); // because the Supabase schema uses an int2
-                    break;
-                }
-                default: {
-                    const timestampUpdate = await draw(row.counter, chainId);
-                    await notificationSystem
-                        .from(`hermes-tg-counters`)
-                        .update({ counter: timestampUpdate })
-                        .eq("bot_name", bots.V1_COURT_DRAW)
-                        .eq("chainid", chainId);
-                    break;
-                }
+        let blocks: Map<number, number | null> = new Map();
+        for (const chainId of supportedChainIdsV1){
+            const provider = new JsonRpcProvider(rpcUrl[chainId]);
+            try {
+                blocks.set(chainId, await provider.getBlock("finalized").then((block: Block | null) => block ? block?.number : null));
+            } catch (e){
+                console.error(e);
             }
         }
 
+        for (const chainId of supportedChainIdsV2){
+            const provider = new JsonRpcProvider(rpcUrl[chainId]);
+            try {
+                blocks.set(chainId, await provider.getBlock("finalized").then((block: Block | null) => block ? block?.number : null));
+            } catch (e){
+                console.error(e);
+            }
+        }
+
+        for (let row of data) {            
+            const isV1 = supportedChainIdsV1.includes(row.network as Supported<typeof supportedChainIdsV1>)
+            const isV2 = supportedChainIdsV2.includes(row.network as Supported<typeof supportedChainIdsV2>)
+
+            if (!(isV1 || isV2)) continue; // TODO: log a warning for skipping this row
+
+            const block = blocks.get(row.network);
+            if (!block) {
+                console.error(`Block not found for chainId ${row.network}`);
+                continue; 
+            }
+            switch (row.bot_name) {
+                case "court-dispute": {
+                    const notify = isV1 ? dispute : disputeV2;
+                    row = await notify(channel, logtail, signer, block, row, testTgUserId);
+                    break;
+                }
+                case "court-draw": {
+                    const notify = isV1 ? draw : drawV2;
+                    row = await notify(channel, logtail, signer, block, row, testTgUserId);
+                    break;
+                }
+                case "court-commit": {
+                    const notify = isV1 ? period : periodV2;
+                    row = await notify(channel, logtail, signer, block, row, isV1? "COMMIT" : "commit", testTgUserId);
+                    break;
+                }
+                case "court-commit-reminder": {
+                    const notify = isV1 ? periodReminder : periodReminderV2;
+                    row = await notify(channel, logtail, signer, block, row, isV1? "COMMIT" : "commit", testTgUserId);
+                    break;
+                }
+                case "court-vote": {
+                    const notify = isV1 ? period : periodV2;
+                    row = await notify(channel, logtail, signer, block, row, isV1? "VOTE" : "vote", testTgUserId);
+                    break;
+                }
+                case "court-vote-reminder": {
+                    const notify = isV1 ? periodReminder : periodReminderV2;
+                    row = await notify(channel, logtail, signer, block, row, isV1? "VOTE" : "vote", testTgUserId);
+                    break;
+                }
+                case "court-appeal": {
+                    const notify = isV1 ? appeal : appealV2;
+                    row = await notify(channel, logtail, signer, block, row, testTgUserId);
+                    break;
+                }
+                case "court-appeal-reminders": {
+                    const notify = isV1 ? appealReminder : appealReminderV2;
+                    row = await notify(channel, logtail, signer, block, row, testTgUserId);
+                    break;
+                }
+                default: {
+                    continue;
+                }
+            }
+
+            await notificationSystem
+            .from(`hermes-counters`)
+            .upsert(row)
+        }
+
+        await channel.close();
+        await connection.close();
+        
         return {
             statusCode: StatusCodes.OK,
         };
     } catch (err: any) {
-        console.log(err);
+        console.error(err);
         return {
             statusCode: StatusCodes.BAD_REQUEST,
         };

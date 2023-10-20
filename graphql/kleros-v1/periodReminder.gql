@@ -1,0 +1,35 @@
+query JurorsPeriodReminder(
+    $period: Period!
+    $reminderDeadline: BigInt!,
+    $timeNow: BigInt!,
+    $blockHeight: Int!,
+    $idLast: String!,
+    $blockLast: BigInt!){
+    userRoundInfos(
+        first: 1000,
+        where: {
+            id_gt: $idLast
+            dispute_: {
+                period: $period,
+                periodDeadline_lte: $reminderDeadline,
+                periodDeadline_gt: $timeNow,
+                lastPeriodChangeBlock_gt: $blockLast
+            },
+            round_:{
+                isCurrentRound: true
+            }
+        }, 
+        block: {number: $blockHeight},
+        orderBy: id,
+        orderDirection: asc) {
+            id
+            juror
+            dispute{
+                periodDeadline
+                id
+                court{
+                    hiddenVotes
+                }
+            }
+    }
+}

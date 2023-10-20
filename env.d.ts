@@ -8,7 +8,11 @@ declare global {
       BOT_TOKEN: string;
       WEB_HOOK_URL: string;
       LOGTAIL_SOURCE_TOKEN: string;
-      PRIVATE_RPC_ENDPOINT_MAINNET: string;
+      RABBITMQ_URL: string;
+      SIGNER_KEY: string;
+      TEST_TG_USER_ID: number | undefined;
+      RPC_URL_MAINNET: string;
+      RPC_URL_GNOSIS: string;
       NOTIFICATION_CHANNEL: string;
       FUNCTION_SECRET: string;
     }

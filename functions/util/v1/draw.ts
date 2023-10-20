@@ -1,93 +1,117 @@
-import axios from "axios";
-import { supportedChainIds, getKBSubgraphData } from "../../../config/subgraph";
+import { getDraws, supportedChainIdsV1 } from "../../../config/subgraph";
 import { getAddress } from "ethers";
-import { JurorsDrawnQuery } from "../../../generated/kleros-board-graphql";
+import { JurorsDrawnQuery } from "../../../generated/kleros-v1-notifications";
 import { notificationSystem } from "../../../config/supabase";
-import { ArrayElement } from "../../../types";
-import PQueue from "p-queue";
-
-const queue = new PQueue({
-    intervalCap: 20,
-    interval: 1000,
-    carryoverConcurrencyCount: true,
-});
+import { ArrayElement, BotData, Supported } from "../../../types";
+import { Channel } from 'amqplib';
+import { Logtail } from "@logtail/node";
+import { sendToRabbitMQ } from "../rabbitMQ";
+import { Wallet } from "ethers";
 
 export const draw = async (
-    timestampLastUpdate: number,
-    chainid: ArrayElement<typeof supportedChainIds>
-) => {
-    const JurorsDrawn = (await getKBSubgraphData(chainid, "JurorsDrawn", {
-        timestamp: timestampLastUpdate,
-    })) as JurorsDrawnQuery;
+    channel: Channel,
+    logtail: Logtail,
+    signer: Wallet,
+    blockHeight: number,
+    botData: BotData,
+    testTgUserId?: number
+): Promise<BotData> => {
+    while (1){
+        const jurorsDrawn = await getDraws(
+            botData.network as Supported<typeof supportedChainIdsV1>,
+            {
+                blockHeight,
+                indexLast: botData.indexLast
+            }
+        )
 
-    if (!JurorsDrawn || !JurorsDrawn.draws)
-        throw new Error("invalid timestamp or subgraph error");
+        if (!jurorsDrawn || !jurorsDrawn.userRoundInfos){
+            logtail.error("invalid query or subgraph error. BotData: ", {botData});
+            break;
+        }
 
-    const uniqueJurors = removeDuplicatesByProperties(
-        JurorsDrawn.draws,
-        "address",
-        "disputeId"
-    );
-    for (const drawnJuror of uniqueJurors) {
-        const tg_users = await notificationSystem
-            .from(`tg-juror-subscriptions`)
-            .select("tg_user_id")
-            .eq("juror_address", getAddress(drawnJuror.address));
+        if (jurorsDrawn.userRoundInfos.length == 0) {
+            break;
+        }
 
-        if (!tg_users?.data || tg_users?.data?.length == 0) continue;
+        const jurors: string[] = jurorsDrawn.userRoundInfos.map((juror) => getAddress(juror.juror));
+        const jurorsMessages = jurorsDrawn.userRoundInfos.map((juror) => {
+            return { ...juror, message: formatMessage(juror, botData.network) };
+          });
+          
 
-        for (const tg_user of tg_users?.data!) {
-            const tg_users_id = tg_user.tg_user_id.toString();
+        const tg_users = await notificationSystem.rpc("get_subscribers", {vals: jurors})
 
-            await queue.add(async () => {
-                await axios.post(
-                    `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
+        if (!tg_users || tg_users.error!= null){
+            break;
+        }
+
+        let messages = [];
+        for (const juror of jurorsMessages) {
+            let tg_subcribers : number[] = [];
+            if (testTgUserId != null){
+                tg_subcribers.push(testTgUserId);
+            } else {
+                tg_users.data.find((tg_user) => tg_user.juror_address == getAddress(juror.juror));
+                // get_subscribers returns sorted by juror_address
+                let index = tg_users.data.findIndex((tg_user) => tg_user.juror_address == getAddress(juror.juror));
+                if (index == -1) continue; 
+                while (tg_users.data[index]?.juror_address == getAddress(juror.juror)){
+                    tg_subcribers.push(tg_users.data[index]?.tg_user_id);
+                    index++;
+                }
+            }
+            // Telegram API malfunctioning, can't send caption with animation
+            // sending two messages instead
+            const payload = 
+            { 
+                tg_subcribers, 
+                messages: [
                     {
-                        chat_id: tg_users_id,
-                        text: formatMessage(drawnJuror, chainid),
-                        parse_mode: "Markdown",
-                        disable_web_page_preview: true,
+                    cmd: "sendAnimation",
+                    file: "drawn",
+                    },{
+                    cmd: "sendMessage",
+                    msg: juror.message,
+                    options: 
+                        {
+                            parse_mode: "Markdown",
+                        }
                     }
-                );
-            });
-        }
-        if (drawnJuror.timestamp > timestampLastUpdate) {
-            timestampLastUpdate = drawnJuror.timestamp;
-        }
-    }
+                ]
+            }
 
-    await queue.onIdle();
-    return timestampLastUpdate;
+            messages.push({ payload, signedPayload: await signer.signMessage(JSON.stringify(payload))});
+
+        }
+        await sendToRabbitMQ(logtail, channel, messages);
+        botData.indexLast = (Number(jurorsDrawn.userRoundInfos[jurorsDrawn.userRoundInfos.length - 1].drawNotificationIndex) + 1).toString();
+        if (jurorsDrawn.userRoundInfos.length < 1000) break;
+    }
+    return botData;
 };
 
 const formatMessage = (
-    drawnJuror: ArrayElement<JurorsDrawnQuery["draws"]>,
+    juror: ArrayElement<JurorsDrawnQuery["userRoundInfos"]>,
     chainid: number
 ) => {
-    const shortAddress =
-        drawnJuror.address.slice(0, 6) + "..." + drawnJuror.address.slice(-4);
-    return `Juror *${shortAddress}* has been drawn in [dispute ${
-        drawnJuror.disputeId
-    }](https://court.kleros.io/cases/${drawnJuror.disputeId}) (*${
-        chainid == 1 ? "mainnet" : "gnosis"
-    }*).`;
+    const isCommitReveal = juror.dispute.court.hiddenVotes;
+    const secRemaining = Math.floor(Number(juror.dispute.periodDeadline) - Date.now()/1000)
+
+    const daysRemaining = Math.floor(secRemaining / 86400)
+    const hoursRemaining = Math.floor((secRemaining % 86400) / 3600)
+    const minRemaining = Math.floor((secRemaining % 3600) / 60)
+    const timeRemaining = `${daysRemaining > 0 ? `${daysRemaining} day${daysRemaining > 1 ? "s " : " "}` : ""}` +
+                            `${hoursRemaining > 0 ? `${hoursRemaining} hour${hoursRemaining > 1 ? "s " : " "}` : ""}` +
+                            `${minRemaining > 0 && hoursRemaining == 0 && daysRemaining == 0? `${minRemaining} min${minRemaining > 1 ? "s " : " "}` : ""}`
+    const shortAddress = juror.juror.slice(0, 5) + "..." + juror.juror.slice(-3);
+    return `***Juror duty awaits you!*** 
+    
+*${shortAddress}* has been drawn in [case ${
+        juror.dispute.id
+    }](https://court.kleros.io/cases/${juror.dispute.id}) ${
+        chainid == 1 ? "(*V1*)" : "(*V1 Gnosis*)"
+    }.
+    
+${isCommitReveal? "This dispute is commit-reveal. Remember to reveal your vote later.\n\n": ""} Voting starts in ${secRemaining > 60 ? timeRemaining.substring(0,timeRemaining.length-1) : 'less than a minute'}. You can already start reviewing the evidence.`;
 };
-
-function removeDuplicatesByProperties(
-    arr: any[],
-    prop1: string,
-    prop2: string
-): any[] {
-    const uniqueMap = new Map();
-    const result = [];
-
-    for (const obj of arr) {
-        const propertyPair = `${obj[prop1]}_${obj[prop2]}`;
-        if (!uniqueMap.has(propertyPair)) {
-            uniqueMap.set(propertyPair, true);
-            result.push(obj);
-        }
-    }
-
-    return result;
-}
