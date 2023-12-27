@@ -1,7 +1,14 @@
 import axios from "axios";
 import { Chain, createPublicClient, getAddress, http } from "viem";
-import { arbitrumGoerli } from "viem/chains";
-import { klerosCoreABI, klerosCoreAddress } from "./kleros-core";
+import { arbitrumSepolia } from "viem/chains";
+import {
+    klerosCoreABI as klerosCoreABIDevnet,
+    klerosCoreAddress as klerosCoreAddressDevnet,
+} from "./klerosCore.devnet";
+import {
+    klerosCoreABI as klerosCoreABITestnet,
+    klerosCoreAddress as klerosCoreAddressTestnet,
+} from "./klerosCore.testnet";
 import { notificationSystem } from "../../../config/supabase";
 import PQueue from "p-queue";
 
@@ -10,6 +17,8 @@ const queue = new PQueue({
     interval: 1000,
     carryoverConcurrencyCount: true,
 });
+
+type Deployment = "devnet" | "testnet";
 
 type Draw = {
     _address?: `0x${string}`;
@@ -25,8 +34,18 @@ type DrawsByAddress = {
 };
 
 export const draw = async (fromBlockNumber: bigint) => {
+    let highestBlockNumber = await drawForDeployment(fromBlockNumber, "devnet");
+    // highestBlockNumber = await drawForDeployment(fromBlockNumber, "testnet"); // TODO: uncomment once testnet is ready
+    return highestBlockNumber;
+};
+
+const drawForDeployment = async (
+    fromBlockNumber: bigint,
+    deployment: Deployment
+) => {
     const { drawsByAddress, highestBlockNumber } = await getDrawsByAddress(
-        fromBlockNumber
+        fromBlockNumber,
+        deployment
     );
     console.log(drawsByAddress);
 
@@ -44,12 +63,12 @@ export const draw = async (fromBlockNumber: bigint) => {
 
             for (const draw of draws) {
                 await queue.add(async () => {
-                    console.log(formatMessage(draw));
+                    console.log(formatMessage(draw, deployment));
                     await axios.post(
                         `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
                         {
                             chat_id: tg_users_id,
-                            text: formatMessage(draw),
+                            text: formatMessage(draw, deployment),
                             parse_mode: "Markdown",
                             disable_web_page_preview: true,
                         }
@@ -63,38 +82,73 @@ export const draw = async (fromBlockNumber: bigint) => {
     return highestBlockNumber;
 };
 
-const formatMessage = (draw: CountedDraw) => {
+const formatMessage = (draw: CountedDraw, deployment: Deployment) => {
     if (!draw._address) return undefined;
     const shortAddress =
         draw._address.slice(0, 6) + "..." + draw._address.slice(-4);
+    const courtUrl = `${courtUrlProvider(deployment)}/#/cases/${
+        draw._disputeID
+    }`;
     const voteString = draw.count > 1 ? "votes" : "vote";
-    return `Juror *${shortAddress}* has been drawn in [dispute ${draw._disputeID} round ${draw._roundID}](https://v2.kleros.builders/#/cases/${draw._disputeID}) with ${draw.count} ${voteString}.`;
+    return `
+🏛️ *${deployment.toUpperCase()}*
+🧑‍⚖️ Juror *${shortAddress}* has been drawn in [dispute ${draw._disputeID} round ${draw._roundID}](${courtUrl}) with ${draw.count} ${voteString}.`;
 };
 
-const getDrawsByAddress = async (fromBlockNumber: bigint) => {
-    const arbitrumGoerli2: Chain = process.env
-        .PRIVATE_RPC_ENDPOINT_ARBITRUMGOERLI
+const courtUrlProvider = (deployment: Deployment) => {
+    switch (deployment) {
+        case "devnet":
+            return "https://dev--kleros-v2.netlify.app";
+        case "testnet":
+            return "https://v2.kleros.builders";
+        default:
+            throw new Error(`Unknown deployment: ${deployment}`);
+    }
+};
+
+const klerosCoreProvider = (deployment: Deployment) => {
+    switch (deployment) {
+        case "devnet":
+            return {
+                abi: klerosCoreABIDevnet,
+                address: klerosCoreAddressDevnet[arbitrumSepolia.id],
+            };
+        case "testnet":
+            return {
+                abi: klerosCoreABITestnet,
+                address: klerosCoreAddressTestnet[arbitrumSepolia.id],
+            };
+        default:
+            throw new Error(`Unknown deployment: ${deployment}`);
+    }
+};
+
+const getDrawsByAddress = async (
+    fromBlockNumber: bigint,
+    deployment: Deployment
+) => {
+    const arbitrumSepoliaWithCustomRpc: Chain = process.env
+        .PRIVATE_RPC_ENDPOINT_ARBITRUMSEPOLIA
         ? {
-              ...arbitrumGoerli,
+              ...arbitrumSepolia,
               rpcUrls: {
-                  ...arbitrumGoerli.rpcUrls,
+                  ...arbitrumSepolia.rpcUrls,
                   default: {
-                      http: [process.env.PRIVATE_RPC_ENDPOINT_ARBITRUMGOERLI],
+                      http: [process.env.PRIVATE_RPC_ENDPOINT_ARBITRUMSEPOLIA],
                   },
               },
           }
-        : arbitrumGoerli;
+        : arbitrumSepolia;
 
     const client = createPublicClient({
-        chain: arbitrumGoerli2,
+        chain: arbitrumSepoliaWithCustomRpc,
         transport: http(),
     });
-
-    // Many RPCs for Arbitrum Goerli do not support eth_newFilter
+    // Many RPCs for Arbitrum Sepolia do not support eth_newFilter
     // In such case use getLogs() instead of createContractEventFilter()/getFilterLogs()
     // await client
     //   .getLogs({
-    //     address: klerosCoreAddress[arbitrumGoerli.id],
+    //     address: klerosCoreAddress[arbitrumSepolia.id],
     //     event: parseAbiItem(
     //       "event Draw(address indexed _address, uint256 indexed _disputeID, uint256 _roundID, uint256 _voteID)"
     //     ),
@@ -103,8 +157,7 @@ const getDrawsByAddress = async (fromBlockNumber: bigint) => {
     //   .then(console.log);
 
     const filter = await client.createContractEventFilter({
-        abi: klerosCoreABI,
-        address: klerosCoreAddress[arbitrumGoerli.id],
+        ...klerosCoreProvider(deployment),
         eventName: "Draw",
         fromBlock: fromBlockNumber,
     });

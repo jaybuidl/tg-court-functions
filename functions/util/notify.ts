@@ -4,7 +4,7 @@ import { draw } from "./v1/draw";
 import { draw as drawV2 } from "./v2/draw";
 import { notificationSystem } from "../../config/supabase";
 import { StatusCodes } from "http-status-codes";
-import { arbitrumGoerli } from "viem/chains";
+import { arbitrumSepolia } from "viem/chains";
 import { supportedChainIds } from "../../config/subgraph";
 import { ArrayElement } from "../../types";
 
@@ -65,7 +65,7 @@ export const notify = async () => {
                         .from(`hermes-tg-counters`)
                         .update({ counter: Number(blockNumberUpdate) }) // Dangerous if higher than Number.MAX_SAFE_INTEGER
                         .eq("bot_name", bots.V2_COURT_DRAW)
-                        .eq("chainid", 0 /* arbitrumGoerli.id */); // because the Supabase schema uses an int2
+                        .eq("chainid", 0 /* arbitrumSepolia.id */); // because the Supabase schema uses an int2
                     break;
                 }
                 default: {
