@@ -35,7 +35,7 @@ type DrawsByAddress = {
 
 export const draw = async (fromBlockNumber: bigint) => {
     let highestBlockNumber = await drawForDeployment(fromBlockNumber, "devnet");
-    // highestBlockNumber = await drawForDeployment(fromBlockNumber, "testnet"); // TODO: uncomment once testnet is ready
+    highestBlockNumber = await drawForDeployment(fromBlockNumber, "testnet");
     return highestBlockNumber;
 };
 

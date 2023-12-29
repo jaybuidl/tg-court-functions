@@ -2,6 +2,9 @@
 // KlerosCore
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+/**
+ *
+ */
 export const klerosCoreABI = [
     { stateMutability: "payable", type: "fallback" },
     { stateMutability: "payable", type: "receive" },
@@ -1233,7 +1236,7 @@ export const klerosCoreABI = [
  *
  */
 export const klerosCoreAddress = {
-    421614: "0xA54e7A16d7460e38a8F324eF46782FB520d58CE8",
+    421614: "0x33d0b8879368acD8ca868e656Ade97bB97b90468",
 } as const;
 
 /**
