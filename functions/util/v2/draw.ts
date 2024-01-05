@@ -34,8 +34,13 @@ type DrawsByAddress = {
 };
 
 export const draw = async (fromBlockNumber: bigint) => {
-    let highestBlockNumber = await drawForDeployment(fromBlockNumber, "devnet");
-    highestBlockNumber = await drawForDeployment(fromBlockNumber, "testnet");
+    const currentBlockNumber = await createPublicClient({
+        chain: arbitrumSepolia,
+        transport: http(),
+    }).getBlockNumber();
+    const lastBlockNumber1 = await drawForDeployment(fromBlockNumber, "devnet");
+    const lastBlockNumber2 = await drawForDeployment(fromBlockNumber, "testnet");
+    const highestBlockNumber = [currentBlockNumber, lastBlockNumber1, lastBlockNumber2].reduce((a, b) => (a >= b ? a : b));
     return highestBlockNumber;
 };
 
