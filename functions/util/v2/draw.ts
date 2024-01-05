@@ -39,14 +39,8 @@ export const draw = async (fromBlockNumber: bigint) => {
     return highestBlockNumber;
 };
 
-const drawForDeployment = async (
-    fromBlockNumber: bigint,
-    deployment: Deployment
-) => {
-    const { drawsByAddress, highestBlockNumber } = await getDrawsByAddress(
-        fromBlockNumber,
-        deployment
-    );
+const drawForDeployment = async (fromBlockNumber: bigint, deployment: Deployment) => {
+    const { drawsByAddress, highestBlockNumber } = await getDrawsByAddress(fromBlockNumber, deployment);
     console.log(drawsByAddress);
 
     for (const address of Object.keys(drawsByAddress)) {
@@ -64,15 +58,16 @@ const drawForDeployment = async (
             for (const draw of draws) {
                 await queue.add(async () => {
                     console.log(formatMessage(draw, deployment));
-                    await axios.post(
-                        `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
-                        {
+                    try {
+                        await axios.post(`https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`, {
                             chat_id: tg_users_id,
                             text: formatMessage(draw, deployment),
                             parse_mode: "Markdown",
                             disable_web_page_preview: true,
-                        }
-                    );
+                        });
+                    } catch (e) {
+                        console.error("Failed to send message to Telegram: ", e);
+                    }
                 });
             }
         }
@@ -84,15 +79,14 @@ const drawForDeployment = async (
 
 const formatMessage = (draw: CountedDraw, deployment: Deployment) => {
     if (!draw._address) return undefined;
-    const shortAddress =
-        draw._address.slice(0, 6) + "..." + draw._address.slice(-4);
-    const courtUrl = `${courtUrlProvider(deployment)}/#/cases/${
-        draw._disputeID
-    }`;
+    const shortAddress = draw._address.slice(0, 6) + "..." + draw._address.slice(-4);
+    const courtUrl = `${courtUrlProvider(deployment)}/#/cases/${draw._disputeID}`;
     const voteString = draw.count > 1 ? "votes" : "vote";
     return `
 🏛️ *${deployment.toUpperCase()}*
-🧑‍⚖️ Juror *${shortAddress}* has been drawn in [dispute ${draw._disputeID} round ${draw._roundID}](${courtUrl}) with ${draw.count} ${voteString}.`;
+🧑‍⚖️ Juror *${shortAddress}* has been drawn in [dispute ${draw._disputeID} round ${draw._roundID}](${courtUrl}) with ${
+        draw.count
+    } ${voteString}.`;
 };
 
 const courtUrlProvider = (deployment: Deployment) => {
@@ -123,12 +117,8 @@ const klerosCoreProvider = (deployment: Deployment) => {
     }
 };
 
-const getDrawsByAddress = async (
-    fromBlockNumber: bigint,
-    deployment: Deployment
-) => {
-    const arbitrumSepoliaWithCustomRpc: Chain = process.env
-        .PRIVATE_RPC_ENDPOINT_ARBITRUMSEPOLIA
+const getDrawsByAddress = async (fromBlockNumber: bigint, deployment: Deployment) => {
+    const arbitrumSepoliaWithCustomRpc: Chain = process.env.PRIVATE_RPC_ENDPOINT_ARBITRUMSEPOLIA
         ? {
               ...arbitrumSepolia,
               rpcUrls: {
@@ -173,59 +163,41 @@ const getDrawsByAddress = async (
 
     const draws: Draw[] = logs.map((log) => log.args);
 
-    const countedDraws = draws.reduce(
-        (acc: { [key: string]: CountedDraw }, draw) => {
-            const key = `${draw._address}-${draw._disputeID}-${draw._roundID}`;
-            if (!acc[key]) {
-                acc[key] = {
-                    _address: draw._address,
-                    _disputeID: draw._disputeID,
-                    _roundID: draw._roundID,
-                    count: 0,
-                };
-            }
-            acc[key].count++;
-            return acc;
-        },
-        {}
-    );
+    const countedDraws = draws.reduce((acc: { [key: string]: CountedDraw }, draw) => {
+        const key = `${draw._address}-${draw._disputeID}-${draw._roundID}`;
+        if (!acc[key]) {
+            acc[key] = {
+                _address: draw._address,
+                _disputeID: draw._disputeID,
+                _roundID: draw._roundID,
+                count: 0,
+            };
+        }
+        acc[key].count++;
+        return acc;
+    }, {});
 
     const sortedDraws = Object.values(countedDraws).sort((a, b) => {
-        if (
-            a._disputeID !== undefined &&
-            b._disputeID !== undefined &&
-            a._disputeID !== b._disputeID
-        ) {
+        if (a._disputeID !== undefined && b._disputeID !== undefined && a._disputeID !== b._disputeID) {
             return Number(a._disputeID - b._disputeID);
         }
-        if (
-            a._roundID !== undefined &&
-            b._roundID !== undefined &&
-            a._roundID !== b._roundID
-        ) {
+        if (a._roundID !== undefined && b._roundID !== undefined && a._roundID !== b._roundID) {
             return Number(a._roundID - b._roundID);
         }
-        if (
-            a._address !== undefined &&
-            b._address !== undefined &&
-            a._address !== b._address
-        ) {
+        if (a._address !== undefined && b._address !== undefined && a._address !== b._address) {
             return a._address < b._address ? -1 : 1;
         }
         return 0;
     });
 
-    const drawsByAddress: DrawsByAddress = sortedDraws.reduce(
-        (acc: { [key: string]: CountedDraw[] }, draw) => {
-            const key = draw._address ?? "";
-            if (!acc[key]) {
-                acc[key] = [];
-            }
-            acc[key].push(draw);
-            return acc;
-        },
-        {}
-    );
+    const drawsByAddress: DrawsByAddress = sortedDraws.reduce((acc: { [key: string]: CountedDraw[] }, draw) => {
+        const key = draw._address ?? "";
+        if (!acc[key]) {
+            acc[key] = [];
+        }
+        acc[key].push(draw);
+        return acc;
+    }, {});
 
     return { drawsByAddress, highestBlockNumber };
 };

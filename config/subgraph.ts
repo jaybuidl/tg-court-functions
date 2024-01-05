@@ -1,5 +1,5 @@
 import { GraphQLClient } from "graphql-request";
-import { gnosis, mainnet } from "viem/chains";
+import { arbitrumSepolia, gnosis, mainnet } from "viem/chains";
 import {
     Sdk as KBSdk,
     getSdk as getKBSdk,
@@ -43,7 +43,7 @@ export const KDsdks = Object.entries(subgraphUrlKD).reduce(
 export const supportedChainIds = [
     mainnet.id,
     gnosis.id,
-    0 /* because the Supabase schema uses an int2 for now, should be arbitrumSepolia.id */,
+    arbitrumSepolia.id,
 ];
 
 export const getKDSubgraphData = async (

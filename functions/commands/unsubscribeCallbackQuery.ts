@@ -8,8 +8,7 @@ import { unsubscribe } from "../../assets/multilang.json";
 let regexps: RegExp[] = [];
 
 const callback = async (bot: TelegramBot, callback_query: TelegramBot.CallbackQuery, lang_code: string) => {
-    
-    if (callback_query.data == "cancel"){
+    if (callback_query.data == "cancel") {
         await bot.deleteMessage(callback_query.message?.chat?.id!, callback_query.message?.message_id!);
         return;
     }
@@ -17,8 +16,8 @@ const callback = async (bot: TelegramBot, callback_query: TelegramBot.CallbackQu
     await notificationSystem
         .from(`tg-juror-subscriptions`)
         .delete()
-        .eq('tg_user_id', callback_query.message?.chat?.id!)
-        .eq('juror_address', callback_query.data);
+        .eq("tg_user_id", callback_query.message?.chat?.id!)
+        .eq("juror_address", callback_query.data);
 
     await bot.sendMessage(
         callback_query.message?.chat?.id!,
@@ -27,6 +26,6 @@ const callback = async (bot: TelegramBot, callback_query: TelegramBot.CallbackQu
 
     await bot.deleteMessage(callback_query.message?.chat?.id!, callback_query.message?.message_id!);
     return;
-}
+};
 
-export {regexps, callback};
+export { regexps, callback };
