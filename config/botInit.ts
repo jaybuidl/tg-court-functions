@@ -1,12 +1,13 @@
 import TelegramBot = require("node-telegram-bot-api");
 import axios from "axios";
 import { bot } from "../assets/multilang.json";
+import env from "../types/env";
 
 require("dotenv").config();
-const { BOT_TOKEN, WEB_HOOK_URL, FUNCTION_SECRET } = process.env;
+const { BOT_TOKEN, WEB_HOOK_URL, FUNCTION_SECRET } = env;
 const tgBot = new TelegramBot(BOT_TOKEN, { polling: false });
 const client = axios.create({
-    baseURL: `https://api.telegram.org/bot${process.env.BOT_TOKEN}`,
+    baseURL: `https://api.telegram.org/bot${BOT_TOKEN}`,
     headers: {
         common: {
             "User-Agent": "",

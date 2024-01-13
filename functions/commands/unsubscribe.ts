@@ -1,5 +1,5 @@
 import * as TelegramBot from "node-telegram-bot-api";
-import { notificationSystem } from "../../config/supabase";
+import { notificationSystem, table } from "../../config/supabase";
 import { unsubscribe } from "../../assets/multilang.json";
 import { commands } from "../../assets/multilang.json";
 
@@ -13,7 +13,7 @@ for (const lang in commands.unsubscribe) {
 }
 const callback = async (bot: TelegramBot, msg: TelegramBot.Message, lang_code: string) => {
     const jurors = await notificationSystem
-        .from(`tg-juror-subscriptions`)
+        .from(table(`tg-juror-subscriptions`))
         .select("juror_address")
         .eq("tg_user_id", msg.from?.id);
 

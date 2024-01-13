@@ -2,7 +2,7 @@ import { appeal } from "./v1/appeal";
 import { dispute } from "./v1/dispute";
 import { draw } from "./v1/draw";
 import { draw as drawV2 } from "./v2/draw";
-import { notificationSystem } from "../../config/supabase";
+import { notificationSystem, table } from "../../config/supabase";
 import { StatusCodes } from "http-status-codes";
 import { supportedChainIds } from "../../config/subgraph";
 import { ArrayElement } from "../../types";
@@ -17,7 +17,7 @@ const bots = {
 export const notify = async () => {
     try {
         const { data, error } = await notificationSystem
-            .from("hermes-counters")
+            .from(table("hermes-counters"))
             .select("*")
             .like("bot_name", "%-v2") // WARNING: v2 only
             .order("bot_name", { ascending: true });
@@ -45,7 +45,7 @@ export const notify = async () => {
                     console.log(bots.V1_COURT_APPEAL);
                     const timestampUpdate = await appeal(row.blockHeight, chainId);
                     await notificationSystem
-                        .from(`hermes-counters`)
+                        .from(table(`hermes-counters`))
                         .update({ blockHeight: timestampUpdate })
                         .eq("bot_name", bots.V1_COURT_APPEAL)
                         .eq("network", chainId);
@@ -55,7 +55,7 @@ export const notify = async () => {
                     console.log(bots.V1_COURT_DISPUTE);
                     const disputeIDUpdate = await dispute(row.blockHeight, chainId);
                     await notificationSystem
-                        .from(`hermes-counters`)
+                        .from(table(`hermes-counters`))
                         .update({ blockHeight: disputeIDUpdate })
                         .eq("bot_name", bots.V1_COURT_DISPUTE)
                         .eq("network", chainId);
@@ -65,7 +65,7 @@ export const notify = async () => {
                     console.log(bots.V2_COURT_DRAW);
                     const blockNumberUpdate = await drawV2(BigInt(row.blockHeight + 1));
                     await notificationSystem
-                        .from(`hermes-counters`)
+                        .from(table(`hermes-counters`))
                         .update({ blockHeight: Number(blockNumberUpdate) }) // Dangerous if higher than Number.MAX_SAFE_INTEGER
                         .eq("bot_name", bots.V2_COURT_DRAW)
                         .eq("network", chainId);
@@ -75,7 +75,7 @@ export const notify = async () => {
                     console.log(bots.V1_COURT_DRAW);
                     const timestampUpdate = await draw(row.blockHeight, chainId);
                     await notificationSystem
-                        .from(`hermes-counters`)
+                        .from(table(`hermes-counters`))
                         .update({ blockHeight: timestampUpdate })
                         .eq("bot_name", bots.V1_COURT_DRAW)
                         .eq("network", chainId);

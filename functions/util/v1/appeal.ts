@@ -1,13 +1,10 @@
 import axios from "axios";
-import { datalake } from "../../../config/supabase";
-import {
-    supportedChainIds,
-    getKBSubgraphData,
-    getKDSubgraphData,
-} from "../../../config/subgraph";
+import { datalake, table } from "../../../config/supabase";
+import { supportedChainIds, getKBSubgraphData, getKDSubgraphData } from "../../../config/subgraph";
 import { AppealableDisputesQuery } from "../../../generated/kleros-board-graphql";
 import { ArrayElement } from "../../../types";
 import PQueue from "p-queue";
+import env from "../../../types/env";
 
 const queue = new PQueue({
     intervalCap: 20,
@@ -15,10 +12,7 @@ const queue = new PQueue({
     carryoverConcurrencyCount: true,
 });
 
-export const appeal = async (
-    timestampLastUpdate: number,
-    chainid: ArrayElement<typeof supportedChainIds>
-) => {
+export const appeal = async (timestampLastUpdate: number, chainid: ArrayElement<typeof supportedChainIds>) => {
     const AppealableDisputesData = (await getKBSubgraphData(
         chainid,
         "AppealableDisputes",
@@ -29,20 +23,14 @@ export const appeal = async (
         throw new Error("invalid timestamp or subgraph error");
 
     for (const appeal of AppealableDisputesData.disputes) {
-        const MetaevidenceData = await getKDSubgraphData(
-            chainid,
-            "metaevidence",
-            appeal.disputeID
-        );
+        const MetaevidenceData = await getKDSubgraphData(chainid, "metaevidence", appeal.disputeID);
 
-        if (!MetaevidenceData || !MetaevidenceData.dispute)
-            throw new Error("invalid dispute or subgraph error");
+        if (!MetaevidenceData || !MetaevidenceData.dispute) throw new Error("invalid dispute or subgraph error");
 
-        let metaEvidenceUri =
-            MetaevidenceData.dispute.arbitrableHistory?.metaEvidence;
+        let metaEvidenceUri = MetaevidenceData.dispute.arbitrableHistory?.metaEvidence;
         if (!metaEvidenceUri) {
             const { data } = await datalake
-                .from("court-v1-metaevidence")
+                .from(table("court-v1-metaevidence"))
                 .select("uri")
                 .eq("chainId", chainid)
                 .eq("arbitrable", appeal.arbitrable.id)
@@ -53,22 +41,15 @@ export const appeal = async (
             }
         }
 
-        const msg = await formatMessage(
-            metaEvidenceUri,
-            appeal,
-            chainid == 1 ? "ethereum" : "gnosis"
-        );
+        const msg = await formatMessage(metaEvidenceUri, appeal, chainid == 1 ? "ethereum" : "gnosis");
 
         await queue.add(async () => {
-            await axios.post(
-                `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
-                {
-                    chat_id: process.env.NOTIFICATION_CHANNEL,
-                    text: msg,
-                    parse_mode: "Markdown",
-                    disable_web_page_preview: true,
-                }
-            );
+            await axios.post(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
+                chat_id: env.NOTIFICATION_CHANNEL,
+                text: msg,
+                parse_mode: "Markdown",
+                disable_web_page_preview: true,
+            });
         });
         if (appeal.lastPeriodChange > timestampLastUpdate) {
             timestampLastUpdate = appeal.lastPeriodChange;
@@ -78,11 +59,7 @@ export const appeal = async (
     return timestampLastUpdate;
 };
 
-const formatMessage = async (
-    metaEvidenceUri: string | undefined,
-    appeal: any,
-    network: string
-) => {
+const formatMessage = async (metaEvidenceUri: string | undefined, appeal: any, network: string) => {
     let res;
     if (metaEvidenceUri) {
         try {
@@ -92,32 +69,22 @@ const formatMessage = async (
     const title = res?.data?.title;
     const description = res?.data?.description;
     const isReality = "A reality.eth question" == title;
-    const isModerate = (res?.data?.fileURI as string).includes(
-        "Content%20Moderation"
-    );
+    const isModerate = (res?.data?.fileURI as string).includes("Content%20Moderation");
     const refuseToArbitrate = appeal.currentRulling == 0;
     let answerString = "";
     if (refuseToArbitrate) {
         answerString = "Refuse to arbitrate";
     } else if (res?.data?.rulingOptions) {
-        const answerDes =
-            res?.data?.rulingOptions?.descriptions[
-                Number(appeal.currentRulling - 1)
-            ];
-        const answerTitle =
-            res?.data?.rulingOptions?.titles[Number(appeal.currentRulling - 1)];
+        const answerDes = res?.data?.rulingOptions?.descriptions[Number(appeal.currentRulling - 1)];
+        const answerTitle = res?.data?.rulingOptions?.titles[Number(appeal.currentRulling - 1)];
         answerString = `${answerTitle}, ${answerDes}`;
     } else if (isModerate) {
         answerString =
-            appeal.currentRulling == 1
-                ? `Yes, the user broke the rules`
-                : `No, the user didn't break the rules`;
+            appeal.currentRulling == 1 ? `Yes, the user broke the rules` : `No, the user didn't break the rules`;
     } else {
         answerString = `Kleros ruling ${appeal.currentRulling}`;
     }
-    let questionString = isModerate
-        ? "Did the user break the rules? (Content Moderation)"
-        : res?.data?.question;
+    let questionString = isModerate ? "Did the user break the rules? (Content Moderation)" : res?.data?.question;
 
     return `[Dispute ${appeal.disputeID}](https://court.kleros.io/cases/${
         appeal.disputeID
@@ -127,11 +94,7 @@ const formatMessage = async (
 
 Question: ${questionString ? questionString : "See court for question"}
 
-Current Ruling: ${
-        answerString
-            ? answerString
-            : `${appeal.currentRulling} (see court for ruling meaning)`
-    }
+Current Ruling: ${answerString ? answerString : `${appeal.currentRulling} (see court for ruling meaning)`}
 
 If you think the ruling is incorrect, you can request an [appeal]${
         isReality

@@ -1,5 +1,5 @@
 import * as TelegramBot from "node-telegram-bot-api";
-import { notificationSystem } from "../../config/supabase";
+import { notificationSystem, table } from "../../config/supabase";
 import { unsubscribe } from "../../assets/multilang.json";
 
 /*
@@ -14,7 +14,7 @@ const callback = async (bot: TelegramBot, callback_query: TelegramBot.CallbackQu
     }
 
     await notificationSystem
-        .from(`tg-juror-subscriptions`)
+        .from(table(`tg-juror-subscriptions`))
         .delete()
         .eq("tg_user_id", callback_query.message?.chat?.id!)
         .eq("juror_address", callback_query.data);

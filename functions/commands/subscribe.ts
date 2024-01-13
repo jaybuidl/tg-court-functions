@@ -3,6 +3,7 @@ import { isAddress, getAddress, JsonRpcProvider } from "ethers";
 import { notificationSystem } from "../../config/supabase";
 import { subscribe } from "../../assets/multilang.json";
 import { commands } from "../../assets/multilang.json";
+import env from "../../types/env";
 
 /*
  * /subscribe
@@ -35,7 +36,7 @@ const callback = async (bot: TelegramBot, msg: TelegramBot.Message, lang_code: s
         }
         address = getAddress(match[2]);
     } else if (match[2].endsWith(".eth")) {
-        const provider = new JsonRpcProvider(process.env.RPC_URL_MAINNET);
+        const provider = new JsonRpcProvider(env.RPC_URL_MAINNET);
         const resp = await provider.resolveName(match[2]);
         if (!resp) {
             await bot.sendMessage(msg.chat.id, subscribe.not_ens[lang_code as keyof typeof subscribe.not_ens]);

@@ -1,18 +1,11 @@
+import { processEnvSchema } from "./types/env";
+
 declare global {
-  namespace NodeJS {
-    interface ProcessEnv {
-      DATALAKE_URL: string;
-      DATALAKE_KEY: string;
-      NOTIFICATION_URL: string;
-      NOTIFICATION_KEY: string;
-      BOT_TOKEN: string;
-      WEB_HOOK_URL: string;
-      LOGTAIL_SOURCE_TOKEN: string;
-      PRIVATE_RPC_ENDPOINT_MAINNET: string;
-      NOTIFICATION_CHANNEL: string;
-      FUNCTION_SECRET: string;
+    namespace NodeJS {
+        interface ProcessEnv extends z.infer<typeof processEnvSchema> {}
     }
-  }
 }
 
-export {}
+// If this file has no import/export statements (i.e. is a script)
+// convert it into a module by adding an empty export statement.
+export {};

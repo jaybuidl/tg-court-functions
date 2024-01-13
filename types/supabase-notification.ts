@@ -141,6 +141,27 @@ export interface Database {
         }
         Relationships: []
       }
+      "tg-juror-subscriptions-staging": {
+        Row: {
+          created_at: string | null
+          juror_address: string
+          tg_user_id: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          juror_address: string
+          tg_user_id: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          juror_address?: string
+          tg_user_id?: number
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       "user-public-messages": {
         Row: {
           address: string

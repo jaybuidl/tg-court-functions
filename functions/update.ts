@@ -6,8 +6,9 @@ import * as unsubscribe from "./commands/unsubscribe";
 import * as unsubscribeCallbackQuery from "./commands/unsubscribeCallbackQuery";
 import * as start from "./commands/start";
 import { lang_support } from "../assets/multilang.json";
+import env from "../types/env";
 
-const { FUNCTION_SECRET, BOT_TOKEN } = process.env;
+const { FUNCTION_SECRET, BOT_TOKEN } = env;
 const bot = new TelegramBot(BOT_TOKEN, { polling: false });
 
 // cache is unreliable (since cloud provider kills instance when idle)

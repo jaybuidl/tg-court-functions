@@ -9,8 +9,9 @@ import {
     klerosCoreABI as klerosCoreABITestnet,
     klerosCoreAddress as klerosCoreAddressTestnet,
 } from "./klerosCore.testnet";
-import { notificationSystem } from "../../../config/supabase";
+import { notificationSystem, table } from "../../../config/supabase";
 import PQueue from "p-queue";
+import env from "../../../types/env";
 
 const queue = new PQueue({
     intervalCap: 20,
@@ -51,7 +52,7 @@ const drawForDeployment = async (fromBlockNumber: bigint, deployment: Deployment
     for (const address of Object.keys(drawsByAddress)) {
         const draws = drawsByAddress[address];
         const tg_users = await notificationSystem
-            .from(`tg-juror-subscriptions`)
+            .from(table(`tg-juror-subscriptions`))
             .select("tg_user_id")
             .eq("juror_address", getAddress(address));
 
@@ -64,7 +65,7 @@ const drawForDeployment = async (fromBlockNumber: bigint, deployment: Deployment
                 await queue.add(async () => {
                     console.log(formatMessage(draw, deployment));
                     try {
-                        await axios.post(`https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`, {
+                        await axios.post(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
                             chat_id: tg_users_id,
                             text: formatMessage(draw, deployment),
                             parse_mode: "Markdown",
@@ -123,13 +124,13 @@ const klerosCoreProvider = (deployment: Deployment) => {
 };
 
 const getDrawsByAddress = async (fromBlockNumber: bigint, deployment: Deployment) => {
-    const arbitrumSepoliaWithCustomRpc: Chain = process.env.PRIVATE_RPC_ENDPOINT_ARBITRUMSEPOLIA
+    const arbitrumSepoliaWithCustomRpc: Chain = env.PRIVATE_RPC_ENDPOINT_ARBITRUMSEPOLIA
         ? {
               ...arbitrumSepolia,
               rpcUrls: {
                   ...arbitrumSepolia.rpcUrls,
                   default: {
-                      http: [process.env.PRIVATE_RPC_ENDPOINT_ARBITRUMSEPOLIA],
+                      http: [env.PRIVATE_RPC_ENDPOINT_ARBITRUMSEPOLIA],
                   },
               },
           }

@@ -2,9 +2,10 @@ import axios from "axios";
 import { supportedChainIds, getKBSubgraphData } from "../../../config/subgraph";
 import { getAddress } from "ethers";
 import { JurorsDrawnQuery } from "../../../generated/kleros-board-graphql";
-import { notificationSystem } from "../../../config/supabase";
+import { notificationSystem, table } from "../../../config/supabase";
 import { ArrayElement } from "../../../types";
 import PQueue from "p-queue";
+import env from "../../../types/env";
 
 const queue = new PQueue({
     intervalCap: 20,
@@ -12,25 +13,17 @@ const queue = new PQueue({
     carryoverConcurrencyCount: true,
 });
 
-export const draw = async (
-    timestampLastUpdate: number,
-    chainid: ArrayElement<typeof supportedChainIds>
-) => {
+export const draw = async (timestampLastUpdate: number, chainid: ArrayElement<typeof supportedChainIds>) => {
     const JurorsDrawn = (await getKBSubgraphData(chainid, "JurorsDrawn", {
         timestamp: timestampLastUpdate,
     })) as JurorsDrawnQuery;
 
-    if (!JurorsDrawn || !JurorsDrawn.draws)
-        throw new Error("invalid timestamp or subgraph error");
+    if (!JurorsDrawn || !JurorsDrawn.draws) throw new Error("invalid timestamp or subgraph error");
 
-    const uniqueJurors = removeDuplicatesByProperties(
-        JurorsDrawn.draws,
-        "address",
-        "disputeId"
-    );
+    const uniqueJurors = removeDuplicatesByProperties(JurorsDrawn.draws, "address", "disputeId");
     for (const drawnJuror of uniqueJurors) {
         const tg_users = await notificationSystem
-            .from(`tg-juror-subscriptions`)
+            .from(table(`tg-juror-subscriptions`))
             .select("tg_user_id")
             .eq("juror_address", getAddress(drawnJuror.address));
 
@@ -40,15 +33,12 @@ export const draw = async (
             const tg_users_id = tg_user.tg_user_id.toString();
 
             await queue.add(async () => {
-                await axios.post(
-                    `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
-                    {
-                        chat_id: tg_users_id,
-                        text: formatMessage(drawnJuror, chainid),
-                        parse_mode: "Markdown",
-                        disable_web_page_preview: true,
-                    }
-                );
+                await axios.post(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
+                    chat_id: tg_users_id,
+                    text: formatMessage(drawnJuror, chainid),
+                    parse_mode: "Markdown",
+                    disable_web_page_preview: true,
+                });
             });
         }
         if (drawnJuror.timestamp > timestampLastUpdate) {
@@ -60,24 +50,14 @@ export const draw = async (
     return timestampLastUpdate;
 };
 
-const formatMessage = (
-    drawnJuror: ArrayElement<JurorsDrawnQuery["draws"]>,
-    chainid: number
-) => {
-    const shortAddress =
-        drawnJuror.address.slice(0, 6) + "..." + drawnJuror.address.slice(-4);
-    return `Juror *${shortAddress}* has been drawn in [dispute ${
+const formatMessage = (drawnJuror: ArrayElement<JurorsDrawnQuery["draws"]>, chainid: number) => {
+    const shortAddress = drawnJuror.address.slice(0, 6) + "..." + drawnJuror.address.slice(-4);
+    return `Juror *${shortAddress}* has been drawn in [dispute ${drawnJuror.disputeId}](https://court.kleros.io/cases/${
         drawnJuror.disputeId
-    }](https://court.kleros.io/cases/${drawnJuror.disputeId}) (*${
-        chainid == 1 ? "mainnet" : "gnosis"
-    }*).`;
+    }) (*${chainid == 1 ? "mainnet" : "gnosis"}*).`;
 };
 
-function removeDuplicatesByProperties(
-    arr: any[],
-    prop1: string,
-    prop2: string
-): any[] {
+function removeDuplicatesByProperties(arr: any[], prop1: string, prop2: string): any[] {
     const uniqueMap = new Map();
     const result = [];
 
