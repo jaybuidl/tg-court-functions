@@ -60,7 +60,22 @@ const drawForDeployment = async (fromBlockNumber: bigint, deployment: Deployment
     const client = viemClientProvider();
     const { drawsByAddress, highestBlockNumber } = await getDrawsByAddress(client, fromBlockNumber, deployment);
 
-    // TODO: select the entire tg-juror-subscriptions table, cache it, filter out the drawnsByAddress which are not subscribed
+    const subscriptions = await notificationSystem
+        .from(table(`tg-juror-subscriptions`))
+        .select("tg_user_id, juror_address")
+        .then((response) => response.data ?? []);
+
+    const subscribedJurors: string[] = subscriptions
+        .map((user) => user.juror_address)
+        .filter((address, index, array) => array.indexOf(address) === index)
+        .filter((address): address is string => address !== undefined);
+
+    // Remove non-subscribed jurors from drawsByAddress
+    Object.keys(drawsByAddress).forEach((address) => {
+        if (!subscribedJurors.includes(address)) {
+            delete drawsByAddress[address];
+        }
+    });
 
     const uniqueDisputeIDs: bigint[] = Object.values(drawsByAddress)
         .flatMap((draws) => draws.filter((draw) => draw._disputeID))
@@ -76,18 +91,10 @@ const drawForDeployment = async (fromBlockNumber: bigint, deployment: Deployment
     console.log(drawsByAddress);
 
     for (const address of Object.keys(drawsByAddress)) {
-        const draws = drawsByAddress[address];
-        const tg_users = await notificationSystem
-            .from(table(`tg-juror-subscriptions`))
-            .select("tg_user_id")
-            .eq("juror_address", getAddress(address));
-
-        if (!tg_users?.data || tg_users?.data?.length == 0) continue;
-
-        for (const tg_user of tg_users?.data!) {
-            const tg_users_id: string = tg_user.tg_user_id.toString();
-
-            for (const draw of draws) {
+        const users = subscriptions.filter((element) => element.juror_address === address);
+        for (const user of users) {
+            const tg_users_id: string = user.tg_user_id.toString();
+            for (const draw of drawsByAddress[address]) {
                 await queue.add(async () => {
                     try {
                         const text = formatMessage(draw, deployment, remainingTimesByDisputeID);

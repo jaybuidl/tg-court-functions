@@ -24,7 +24,7 @@
             "en": [
                 {
                     "command": "subscribe",
-                    "description": "<address or ens>"
+                    "description": "address or ens"
                 },
                 {
                     "command": "unsubscribe",
@@ -34,7 +34,7 @@
             "fr": [
                 {
                     "command": "souscrire",
-                    "description": "<adresse ou ens>"
+                    "description": "adresse ou ens"
                 },
                 {
                     "command": "desinscrire",
@@ -44,7 +44,7 @@
             "es": [
                 {
                     "command": "suscribase",
-                    "description": "<dirección o ens>"
+                    "description": "dirección o ens"
                 },
                 {
                     "command": "cancelar",
@@ -77,9 +77,9 @@
     },
     "subscribe": {
         "no_match": {
-            "en": "Please specify a juror, `/subscribe <0xa1f...2fa or juror.eth>`.",
-            "fr": "Veuillez indiquer un juré, `/souscrire <0xa1f...2fa ou juror.eth>`.",
-            "es": "Por favor, especifique un jurado, `/suscribase <0xa1f...2fa o juror.eth>`."
+            "en": "Please specify a juror, `/subscribe 0xa1f...2fa or juror.eth`.",
+            "fr": "Veuillez indiquer un juré, `/souscrire 0xa1f...2fa ou juror.eth`.",
+            "es": "Por favor, especifique un jurado, `/suscribase 0xa1f...2fa o juror.eth`."
         },
         "invalid": {
             "en": "Invalid Juror.",
