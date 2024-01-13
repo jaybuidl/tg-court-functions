@@ -1,5 +1,5 @@
 import axios from "axios";
-import { Chain, createPublicClient, getAddress, http } from "viem";
+import { Chain, PublicClient, createPublicClient, getAddress, getContract, http } from "viem";
 import { arbitrumSepolia } from "viem/chains";
 import {
     klerosCoreABI as klerosCoreABIDevnet,
@@ -12,6 +12,7 @@ import {
 import { notificationSystem, table } from "../../../config/supabase";
 import PQueue from "p-queue";
 import env from "../../../types/env";
+import { humanizer } from "../../duration";
 
 const queue = new PQueue({
     intervalCap: 20,
@@ -34,6 +35,16 @@ type DrawsByAddress = {
     [key: string]: CountedDraw[];
 };
 
+type RemainingTimes = {
+    commitmentFromNow?: string;
+    voteFromNow: string;
+}
+
+type StringByStringDictionary = { [key: string]: RemainingTimes };
+
+const courtsByID: { [key: string]: readonly [bigint, boolean, bigint, bigint, bigint, bigint, boolean] } = {};
+const courtPeriodsByID: { [key: string]: readonly [bigint, bigint, bigint, bigint] } = {};
+
 export const draw = async (fromBlockNumber: bigint) => {
     const currentBlockNumber = await createPublicClient({
         chain: arbitrumSepolia,
@@ -46,7 +57,22 @@ export const draw = async (fromBlockNumber: bigint) => {
 };
 
 const drawForDeployment = async (fromBlockNumber: bigint, deployment: Deployment) => {
-    const { drawsByAddress, highestBlockNumber } = await getDrawsByAddress(fromBlockNumber, deployment);
+    const client = viemClientProvider();
+    const { drawsByAddress, highestBlockNumber } = await getDrawsByAddress(client, fromBlockNumber, deployment);
+
+    // TODO: select the entire tg-juror-subscriptions table, cache it, filter out the drawnsByAddress which are not subscribed
+
+    const uniqueDisputeIDs: bigint[] = Object.values(drawsByAddress)
+        .flatMap((draws) => draws.filter((draw) => draw._disputeID))
+        .map((draw) => draw._disputeID)
+        .filter((disputeID, index, array) => array.indexOf(disputeID) === index)
+        .filter((disputeID): disputeID is bigint => disputeID !== undefined);
+
+    const remainingTimesByDisputeID: StringByStringDictionary = {};
+    for (const disputeId of uniqueDisputeIDs) {
+        remainingTimesByDisputeID[disputeId.toString()] = await getRemainingTime(client, deployment, disputeId);
+    }
+
     console.log(drawsByAddress);
 
     for (const address of Object.keys(drawsByAddress)) {
@@ -63,11 +89,12 @@ const drawForDeployment = async (fromBlockNumber: bigint, deployment: Deployment
 
             for (const draw of draws) {
                 await queue.add(async () => {
-                    console.log(formatMessage(draw, deployment));
                     try {
+                        const text = formatMessage(draw, deployment, remainingTimesByDisputeID);
+                        console.log(text);
                         await axios.post(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
                             chat_id: tg_users_id,
-                            text: formatMessage(draw, deployment),
+                            text: text,
                             parse_mode: "Markdown",
                             disable_web_page_preview: true,
                         });
@@ -83,16 +110,21 @@ const drawForDeployment = async (fromBlockNumber: bigint, deployment: Deployment
     return highestBlockNumber;
 };
 
-const formatMessage = (draw: CountedDraw, deployment: Deployment) => {
-    if (!draw._address) return undefined;
+const formatMessage = (draw: CountedDraw, deployment: Deployment, remainingTimesByDisputeID: StringByStringDictionary) => {
+    if (!draw._address || !draw._disputeID) return undefined;
     const shortAddress = draw._address.slice(0, 6) + "..." + draw._address.slice(-4);
     const courtUrl = `${courtUrlProvider(deployment)}/#/cases/${draw._disputeID}`;
     const voteString = draw.count > 1 ? "votes" : "vote";
+    const remainingTime = remainingTimesByDisputeID[draw._disputeID.toString()];
+    const callToAction = remainingTime.commitmentFromNow
+        ? `Vote committing ${remainingTime.commitmentFromNow}, Vote revealing ${remainingTime.voteFromNow}.`
+        : `Voting ${remainingTime.voteFromNow}.`;
     return `
 🏛️ *${deployment.toUpperCase()}*
 🧑‍⚖️ Juror *${shortAddress}* has been drawn in [dispute ${draw._disputeID} round ${draw._roundID}](${courtUrl}) with ${
         draw.count
-    } ${voteString}.`;
+    } ${voteString}.
+⏱️ ${callToAction}`;
 };
 
 const courtUrlProvider = (deployment: Deployment) => {
@@ -123,7 +155,7 @@ const klerosCoreProvider = (deployment: Deployment) => {
     }
 };
 
-const getDrawsByAddress = async (fromBlockNumber: bigint, deployment: Deployment) => {
+const viemClientProvider = () => {
     const arbitrumSepoliaWithCustomRpc: Chain = env.PRIVATE_RPC_ENDPOINT_ARBITRUMSEPOLIA
         ? {
               ...arbitrumSepolia,
@@ -136,10 +168,77 @@ const getDrawsByAddress = async (fromBlockNumber: bigint, deployment: Deployment
           }
         : arbitrumSepolia;
 
-    const client = createPublicClient({
+    return createPublicClient({
         chain: arbitrumSepoliaWithCustomRpc,
         transport: http(),
     });
+}
+
+const getRemainingTime = async (client: PublicClient, deployment: Deployment, disputeId: bigint): Promise<RemainingTimes> => {
+    const klerosCore = getContract({...klerosCoreProvider(deployment), publicClient: client});
+
+    const dispute = await klerosCore.read.disputes([disputeId]);
+    const courtId = dispute[0];
+    const currentPeriod = dispute[2];
+    const lastPeriodChange = dispute[4];
+    // console.log("dispute id:", disputeId);
+    // console.log("court id:", courtId);
+    // console.log("current period:", currentPeriod);
+    // console.log("last period change:", lastPeriodChange);
+
+    if (currentPeriod == 2) {
+        return { voteFromNow: humanizer(0n) };
+    }
+    if (currentPeriod >= 3) {
+        return { voteFromNow: humanizer(-1n) };
+    }
+
+    if (!courtPeriodsByID[courtId.toString()]){
+        courtPeriodsByID[courtId.toString()] = await klerosCore.read.getTimesPerPeriod([courtId]);
+    }
+    const periods = courtPeriodsByID[courtId.toString()];
+
+    const currentPeriodDuration = periods[currentPeriod];
+    const now = await client.getBlock().then((block) => block.timestamp);
+    const currentPeriodRemaining = currentPeriodDuration - (now - lastPeriodChange);
+
+    if (!courtsByID[courtId.toString()]){
+        courtsByID[courtId.toString()] = await klerosCore.read.courts([courtId]);
+    }
+    const hiddenVotes = courtsByID[courtId.toString()][1];
+
+    let evidencePeriodRemaining = 0n;
+    let commitmentPeriodRemaining = 0n;
+    let commitmentFromNow = 0n; 
+    if (currentPeriod == 0) {
+        evidencePeriodRemaining = currentPeriodRemaining;
+        commitmentFromNow = evidencePeriodRemaining < 0n ? 0n : evidencePeriodRemaining; // Accounts for the bot possibly being late in passing the periods
+
+        if (hiddenVotes) {
+            // console.log("hidden votes enabled");
+            commitmentPeriodRemaining = periods[1];
+        }
+    }
+
+    if (currentPeriod == 1) {
+        // console.log("hidden votes enabled");
+        evidencePeriodRemaining = -1n;
+        commitmentPeriodRemaining = currentPeriodRemaining;
+        commitmentFromNow = evidencePeriodRemaining; // Accounts for the bot possibly being late in passing the periods
+    }
+
+    // Accounts for the bot possibly being late in passing the periods
+    const voteStartFromNow = (evidencePeriodRemaining < 0n ? 0n : evidencePeriodRemaining) + commitmentPeriodRemaining;
+
+    const remainingMessage: RemainingTimes = {
+        commitmentFromNow: hiddenVotes ? humanizer(commitmentFromNow, commitmentFromNow + periods[1]) : undefined,
+        voteFromNow: humanizer(voteStartFromNow, voteStartFromNow + periods[2]),
+    };
+    // console.log("remaining:", remainingMessage);
+    return remainingMessage;
+};
+
+const getDrawsByAddress = async (client: PublicClient,fromBlockNumber: bigint, deployment: Deployment) => {
     // Many RPCs for Arbitrum Sepolia do not support eth_newFilter
     // In such case use getLogs() instead of createContractEventFilter()/getFilterLogs()
     // await client
@@ -215,7 +314,7 @@ if (__filename === process.argv?.[1]) {
         process.exit(1);
     }
     const fromBlock = BigInt(process.argv?.[2]);
-    draw(fromBlock)
+    drawForDeployment(fromBlock, "devnet")
         .then(() => process.exit(0))
         .catch((error) => {
             console.error(error);
