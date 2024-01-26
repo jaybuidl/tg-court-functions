@@ -38,7 +38,7 @@ type DrawsByAddress = {
 type RemainingTimes = {
     commitmentFromNow?: string;
     voteFromNow: string;
-}
+};
 
 type StringByStringDictionary = { [key: string]: RemainingTimes };
 
@@ -52,7 +52,9 @@ export const draw = async (fromBlockNumber: bigint) => {
     }).getBlockNumber();
     const lastBlockNumber1 = await drawForDeployment(fromBlockNumber, "devnet");
     const lastBlockNumber2 = await drawForDeployment(fromBlockNumber, "testnet");
-    const highestBlockNumber = [currentBlockNumber, lastBlockNumber1, lastBlockNumber2].reduce((a, b) => (a >= b ? a : b));
+    const highestBlockNumber = [currentBlockNumber, lastBlockNumber1, lastBlockNumber2].reduce((a, b) =>
+        a >= b ? a : b
+    );
     return highestBlockNumber;
 };
 
@@ -95,29 +97,41 @@ const drawForDeployment = async (fromBlockNumber: bigint, deployment: Deployment
         for (const user of users) {
             const tg_users_id: string = user.tg_user_id.toString();
             for (const draw of drawsByAddress[address]) {
-                await queue.add(async () => {
-                    try {
-                        const text = formatMessage(draw, deployment, remainingTimesByDisputeID);
-                        console.log(text);
-                        await axios.post(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
-                            chat_id: tg_users_id,
-                            text: text,
-                            parse_mode: "Markdown",
-                            disable_web_page_preview: true,
-                        });
-                    } catch (e) {
-                        console.error("Failed to send message to Telegram: ", e);
-                    }
-                });
+                try {
+                    await queue.add(async () => {
+                        try {
+                            const text = formatMessage(draw, deployment, remainingTimesByDisputeID);
+                            console.log(text);
+                            await axios.post(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
+                                chat_id: tg_users_id,
+                                text: text,
+                                parse_mode: "Markdown",
+                                disable_web_page_preview: true,
+                            });
+                        } catch (e) {
+                            console.error("Failed to send message to Telegram: ", e);
+                        }
+                    });
+                } catch (error) {
+                    console.error("Failed to add to queue: ", error);
+                }
             }
         }
     }
 
-    await queue.onIdle();
+    try {
+        await queue.onIdle();
+    } catch (error) {
+        console.error("Failed to process queue: ", error);
+    }
     return highestBlockNumber;
 };
 
-const formatMessage = (draw: CountedDraw, deployment: Deployment, remainingTimesByDisputeID: StringByStringDictionary) => {
+const formatMessage = (
+    draw: CountedDraw,
+    deployment: Deployment,
+    remainingTimesByDisputeID: StringByStringDictionary
+) => {
     if (!draw._address || !draw._disputeID) return undefined;
     const shortAddress = draw._address.slice(0, 6) + "..." + draw._address.slice(-4);
     const courtUrl = `${courtUrlProvider(deployment)}/#/cases/${draw._disputeID}`;
@@ -179,10 +193,14 @@ const viemClientProvider = () => {
         chain: arbitrumSepoliaWithCustomRpc,
         transport: http(),
     });
-}
+};
 
-const getRemainingTime = async (client: PublicClient, deployment: Deployment, disputeId: bigint): Promise<RemainingTimes> => {
-    const klerosCore = getContract({...klerosCoreProvider(deployment), publicClient: client});
+const getRemainingTime = async (
+    client: PublicClient,
+    deployment: Deployment,
+    disputeId: bigint
+): Promise<RemainingTimes> => {
+    const klerosCore = getContract({ ...klerosCoreProvider(deployment), publicClient: client });
 
     const dispute = await klerosCore.read.disputes([disputeId]);
     const courtId = dispute[0];
@@ -200,7 +218,7 @@ const getRemainingTime = async (client: PublicClient, deployment: Deployment, di
         return { voteFromNow: humanizer(-1n) };
     }
 
-    if (!courtPeriodsByID[courtId.toString()]){
+    if (!courtPeriodsByID[courtId.toString()]) {
         courtPeriodsByID[courtId.toString()] = await klerosCore.read.getTimesPerPeriod([courtId]);
     }
     const periods = courtPeriodsByID[courtId.toString()];
@@ -209,14 +227,14 @@ const getRemainingTime = async (client: PublicClient, deployment: Deployment, di
     const now = await client.getBlock().then((block) => block.timestamp);
     const currentPeriodRemaining = currentPeriodDuration - (now - lastPeriodChange);
 
-    if (!courtsByID[courtId.toString()]){
+    if (!courtsByID[courtId.toString()]) {
         courtsByID[courtId.toString()] = await klerosCore.read.courts([courtId]);
     }
     const hiddenVotes = courtsByID[courtId.toString()][1];
 
     let evidencePeriodRemaining = 0n;
     let commitmentPeriodRemaining = 0n;
-    let commitmentFromNow = 0n; 
+    let commitmentFromNow = 0n;
     if (currentPeriod == 0) {
         evidencePeriodRemaining = currentPeriodRemaining;
         commitmentFromNow = evidencePeriodRemaining < 0n ? 0n : evidencePeriodRemaining; // Accounts for the bot possibly being late in passing the periods
@@ -245,7 +263,7 @@ const getRemainingTime = async (client: PublicClient, deployment: Deployment, di
     return remainingMessage;
 };
 
-const getDrawsByAddress = async (client: PublicClient,fromBlockNumber: bigint, deployment: Deployment) => {
+const getDrawsByAddress = async (client: PublicClient, fromBlockNumber: bigint, deployment: Deployment) => {
     // Many RPCs for Arbitrum Sepolia do not support eth_newFilter
     // In such case use getLogs() instead of createContractEventFilter()/getFilterLogs()
     // await client
