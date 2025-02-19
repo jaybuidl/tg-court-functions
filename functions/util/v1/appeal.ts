@@ -63,7 +63,7 @@ const formatMessage = async (metaEvidenceUri: string | undefined, appeal: any, n
     let res;
     if (metaEvidenceUri) {
         try {
-            res = await axios.get(`https://ipfs.kleros.io/${metaEvidenceUri}`);
+            res = await axios.get(`https://cdn.kleros.link/${metaEvidenceUri}`);
         } catch (e) {}
     }
     const title = res?.data?.title;
