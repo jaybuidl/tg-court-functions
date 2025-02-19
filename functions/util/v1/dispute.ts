@@ -34,7 +34,7 @@ export const dispute = async (disputeID: number, chainid: ArrayElement<typeof su
 const formatMessage = async (dispute: ArrayElement<NewDisputesQuery["disputes"]>, chainid: number) => {
     let res;
     try {
-        res = await axios.get(`https://ipfs.kleros.io/${dispute.subcourtID.policy?.policy}`);
+        res = await axios.get(`https://cdn.kleros.link/${dispute.subcourtID.policy?.policy}`);
     } catch (e) {
         console.log(e);
     }
